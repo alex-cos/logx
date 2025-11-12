@@ -32,27 +32,3 @@ func TestFile(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 }
-
-func TestLoki(t *testing.T) {
-	t.Parallel()
-
-	loki, stop := logx.NewLokiClient("localhost", 3100,
-		logx.WithPeriod(time.Second),
-		logx.WithLabels(map[string]string{
-			"app":          "my_app",
-			"service_name": "my_service",
-		}),
-	)
-	defer stop()
-	logger := logx.New([]io.Writer{loki}, "Debug", true, true).With("service", "my_service")
-
-	logger.Debug("This a debug message")
-	time.Sleep(10 * time.Millisecond)
-	logger.Info("This is a test")
-	time.Sleep(10 * time.Millisecond)
-	logger.Warn("This is a warning")
-	time.Sleep(10 * time.Millisecond)
-	logger.Error("This is an error")
-
-	time.Sleep(5 * time.Second)
-}

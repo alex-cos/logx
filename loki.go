@@ -7,11 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
 	"sync"
 	"time"
+)
+
+const (
+	baseURL = "loki/api/v1"
 )
 
 type lokiRequest struct {
@@ -26,7 +31,10 @@ type lokiStream struct {
 type LokiClient struct {
 	host         string
 	port         int
-	baseURL      string
+	useHTTPS     bool
+	username     string
+	password     string
+	bearer       string
 	httpClient   *http.Client
 	labels       map[string]string
 	batchSize    int
@@ -43,6 +51,25 @@ type LokiClient struct {
 // -----------------------------------------------------------------------------
 
 type Option func(*LokiClient)
+
+func WithHTTPS(b bool) Option {
+	return func(c *LokiClient) {
+		c.useHTTPS = b
+	}
+}
+
+func WithBasicAuth(username, password string) Option {
+	return func(c *LokiClient) {
+		c.username = username
+		c.password = password
+	}
+}
+
+func WithBearerToken(token string) Option {
+	return func(c *LokiClient) {
+		c.bearer = token
+	}
+}
 
 func WithLabels(labels map[string]string) Option {
 	return func(c *LokiClient) {
@@ -62,7 +89,7 @@ func WithHttpClient(httpClient *http.Client) Option {
 
 func WithBatchSize(size int) Option {
 	return func(c *LokiClient) {
-		if size > 0 {
+		if size > 0 && size < 1000 {
 			c.batchSize = size
 		}
 	}
@@ -108,7 +135,10 @@ func NewLokiClient(host string, port int, opts ...Option) (*LokiClient, Close) {
 	c := &LokiClient{
 		host:         host,
 		port:         port,
-		baseURL:      "loki/api/v1",
+		useHTTPS:     false,
+		username:     "",
+		password:     "",
+		bearer:       "",
 		httpClient:   http.DefaultClient,
 		labels:       make(map[string]string),
 		batchSize:    100,
@@ -196,7 +226,6 @@ func (c *LokiClient) Write(input []byte) (int, error) {
 
 func (c *LokiClient) stop() {
 	c.once.Do(func() {
-		time.Sleep(500 * time.Millisecond)
 		close(c.buffer)
 	})
 	c.wg.Wait()
@@ -230,14 +259,17 @@ func (c *LokiClient) run() {
 func (c *LokiClient) sendBatch(batch [][]any) {
 	var err error
 
-	if len(batch) > 0 {
-		for i := range 3 {
-			err = c.send(context.Background(), batch)
-			if err == nil {
-				return
-			}
-			time.Sleep(time.Second * time.Duration(i+1))
+	if len(batch) == 0 {
+		return
+	}
+	for i := range 3 {
+		err = c.send(context.Background(), batch)
+		if err == nil {
+			return
 		}
+		sleep := time.Second * time.Duration(i+1)
+		sleep += time.Duration(rand.Intn(400)) * time.Millisecond // nolint: gosec
+		time.Sleep(sleep)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[LokiClient] failed to send batch: %v\n", err)
@@ -257,12 +289,21 @@ func (c *LokiClient) send(ctx context.Context, batch [][]any) error {
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("http://%s:%d/%s/push", c.host, c.port, c.baseURL)
+	scheme := "http"
+	if c.useHTTPS {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d/%s/push", scheme, c.host, c.port, baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(buf))
 	if err != nil {
 		return err
 	}
-
+	if c.username != "" && c.password != "" {
+		req.SetBasicAuth(c.username, c.password)
+	}
+	if c.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearer)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "GoLokiClient")
 
@@ -273,7 +314,8 @@ func (c *LokiClient) send(ctx context.Context, batch [][]any) error {
 
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		io.ReadAll(io.LimitReader(resp.Body, 2048)) // nolint: errcheck
+		// empty response buffer
+		io.ReadAll(io.LimitReader(resp.Body, 2048)) // nolint:errcheck
 		return fmt.Errorf("server returned status %s (%d)", resp.Status, resp.StatusCode)
 	}
 
