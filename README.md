@@ -1,5 +1,7 @@
 # logx — Extensible logger with file rotation and Loki support
 
+![logx](/logx.png)
+
 `logx` is a lightweight, extensible Go logging module that supports structured logging
 to multiple destinations:
 
