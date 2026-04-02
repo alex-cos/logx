@@ -174,7 +174,9 @@ func (c *LokiClient) Write(input []byte) (int, error) {
 	var values map[string]any
 
 	defer func() {
-		recover() // nolint: errcheck
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "[LokiClient] panic during write: %v\n", r)
+		}
 	}()
 
 	err := json.Unmarshal(input, &values)
