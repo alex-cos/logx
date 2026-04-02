@@ -18,56 +18,65 @@ const (
 	DateTimeFormatNano  = "2006-01-02T15:04:05.000000000Z07:00"
 	FileDateTimeFormat  = "2006-01-02"
 	SError              = "error"
+	CallerKey           = "caller"
+	StackKey            = "stack"
 )
 
-func New(writers []io.Writer, level string, json, utc bool) *slog.Logger {
+func New(writers []io.Writer, level string, opts ...Option) *slog.Logger {
+	cfg := parseConfig(opts...)
+
 	slevel := parseLevel(level)
-	root := findModuleRoot()
 	w := io.MultiWriter(writers...)
 
 	handlerOptions := &slog.HandlerOptions{
-		AddSource:   true,
+		AddSource:   cfg.source,
 		Level:       slevel,
-		ReplaceAttr: computeReplaceAttr(root, utc),
+		ReplaceAttr: computeReplaceAttr(cfg.source, cfg.utc),
 	}
 
-	var handler slog.Handler
-	if json {
-		handler = slog.NewJSONHandler(w, handlerOptions)
+	wrapped := &handler{
+		Handler:  nil,
+		basePath: "",
+		caller:   cfg.caller,
+		stack:    cfg.stack,
+	}
+	if cfg.json {
+		wrapped.Handler = slog.NewJSONHandler(w, handlerOptions)
 	} else {
-		handler = slog.NewTextHandler(w, handlerOptions)
+		wrapped.Handler = slog.NewTextHandler(w, handlerOptions)
 	}
 
-	return slog.New(handler)
+	return slog.New(wrapped)
 }
 
 func NewFileLogger(
 	logpath string,
 	level string,
-	json bool,
-	utc bool,
-	verbose bool,
-) (*slog.Logger, Close) {
+	opts ...Option,
+) (*slog.Logger, Close, error) {
 	w := []io.Writer{}
 
-	file, closeFile := NewFileRotate(logpath, utc)
-	w = append(w, file)
-	if verbose {
-		w = append(w, os.Stdout)
+	file, err := os.OpenFile(logpath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, nil, err
 	}
+	w = append(w, file)
 
-	return New(w, level, json, utc), closeFile
+	return New(w, level, opts...), func() {
+		file.Close()
+	}, nil
 }
 
-func NewConsoleLogger(level string, json, utc bool) *slog.Logger {
-	return New([]io.Writer{os.Stdout}, level, json, utc)
+func NewConsoleLogger(level string, opts ...Option) *slog.Logger {
+	return New([]io.Writer{os.Stdout}, level, opts...)
 }
 
-func NewFileRotate(logpath string, utc bool) (io.Writer, Close) {
+func NewFileRotate(logpath string, opts ...Option) (io.Writer, Close, error) {
 	dir := filepath.Dir(logpath)
 	filename := filepath.Base(logpath)
 	ext := filepath.Ext(filename)
 	basename := strings.TrimSuffix(filename, ext)
+	cfg := parseConfig(opts...)
 	fileconfig := filerotate.Config{
 		DidClose: func(path string, didRotate bool) {
 			// By default do noting
@@ -77,7 +86,7 @@ func NewFileRotate(logpath string, utc bool) (io.Writer, Close) {
 				return ""
 			}
 			d := now
-			if utc {
+			if cfg.utc {
 				d = now.UTC()
 			}
 			name := fmt.Sprintf("%s_%s%s", basename, d.Format(FileDateTimeFormat), ext)
@@ -86,12 +95,12 @@ func NewFileRotate(logpath string, utc bool) (io.Writer, Close) {
 	}
 	file, err := filerotate.New(&fileconfig)
 	if err != nil {
-		panic(err)
+		return nil, nil, err
 	}
 
 	return file, func() {
 		file.Close()
-	}
+	}, nil
 }
 
 func Error(err error) slog.Attr {
@@ -120,7 +129,7 @@ func parseLevel(s string) slog.Level {
 	}
 }
 
-func computeReplaceAttr(root string, utc bool) func(groups []string, a slog.Attr) slog.Attr {
+func computeReplaceAttr(source, utc bool) func(groups []string, a slog.Attr) slog.Attr {
 	return func(groups []string, a slog.Attr) slog.Attr {
 		switch a.Key {
 		case slog.TimeKey:
@@ -138,39 +147,18 @@ func computeReplaceAttr(root string, utc bool) func(groups []string, a slog.Attr
 				Value: slog.StringValue(strings.ToLower(a.Value.String())),
 			}
 		case slog.SourceKey:
-			if v, ok := a.Value.Any().(*slog.Source); ok {
-				file := v.File
-				if root != "" {
-					if rel, err := filepath.Rel(root, file); err == nil {
-						file = rel
-					}
-				} else {
-					file = filepath.Base(file)
-				}
-				file = filepath.ToSlash(file)
+			if source {
+				return a
+			} else {
 				return slog.Attr{
-					Key:   "caller",
-					Value: slog.StringValue(fmt.Sprintf("%s:%d", file, v.Line)),
+					Key:   "",
+					Value: slog.AnyValue(nil),
 				}
 			}
+		case CallerKey:
+			return a
+		default:
+			return a
 		}
-
-		return a
 	}
-}
-
-func findModuleRoot() string {
-	dir, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-
-	return ""
 }

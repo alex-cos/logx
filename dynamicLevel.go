@@ -26,10 +26,12 @@ func (d *DynamicLevel) Level() slog.Level {
 }
 
 func ParseLogLevel(s string) slog.Level {
-	switch strings.ToLower(s) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "debug":
 		return slog.LevelDebug
-	case "warn":
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
 		return slog.LevelWarn
 	case "error":
 		return slog.LevelError

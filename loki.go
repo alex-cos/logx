@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"strconv"
@@ -49,91 +49,10 @@ type LokiClient struct {
 }
 
 // -----------------------------------------------------------------------------
-// Options
-// -----------------------------------------------------------------------------
-
-type Option func(*LokiClient)
-
-func WithHTTPS(b bool) Option {
-	return func(c *LokiClient) {
-		c.useHTTPS = b
-	}
-}
-
-func WithBasicAuth(username, password string) Option {
-	return func(c *LokiClient) {
-		c.username = username
-		c.password = password
-	}
-}
-
-func WithBearerToken(token string) Option {
-	return func(c *LokiClient) {
-		c.bearer = token
-	}
-}
-
-func WithLabels(labels map[string]string) Option {
-	return func(c *LokiClient) {
-		for k, v := range labels {
-			c.labels[k] = v
-		}
-	}
-}
-
-func WithHttpClient(httpClient *http.Client) Option {
-	return func(c *LokiClient) {
-		if httpClient != nil {
-			c.httpClient = httpClient
-		}
-	}
-}
-
-func WithBatchSize(size int) Option {
-	return func(c *LokiClient) {
-		if size > 0 && size < 1000 {
-			c.batchSize = size
-		}
-	}
-}
-
-func WithPeriod(d time.Duration) Option {
-	return func(c *LokiClient) {
-		if d > 0 {
-			c.period = d
-		}
-	}
-}
-
-func WithWriteTimeout(d time.Duration) Option {
-	return func(c *LokiClient) {
-		if d > 0 {
-			c.writeTimeout = d
-		}
-	}
-}
-
-func WithSendTimeout(d time.Duration) Option {
-	return func(c *LokiClient) {
-		if d > 0 {
-			c.sendTimeout = d
-		}
-	}
-}
-
-func WithBufferSize(size int) Option {
-	return func(c *LokiClient) {
-		if size > 0 {
-			c.buffer = make(chan []any, size)
-		}
-	}
-}
-
-// -----------------------------------------------------------------------------
 // Constructor
 // -----------------------------------------------------------------------------
 
-func NewLokiClient(host string, port int, opts ...Option) (*LokiClient, Close) {
+func NewLokiClient(host string, port int, opts ...LokiOption) (*LokiClient, Close) {
 	c := &LokiClient{
 		host:         host,
 		port:         port,
@@ -277,7 +196,7 @@ func (c *LokiClient) sendBatch(batch [][]any) {
 			return
 		}
 		sleep := time.Second * time.Duration(i+1)
-		sleep += time.Duration(rand.Intn(400)) * time.Millisecond // nolint: gosec
+		sleep += time.Duration(rand.IntN(400)) * time.Millisecond // nolint: gosec
 		time.Sleep(sleep)
 	}
 	if err != nil {
@@ -321,10 +240,11 @@ func (c *LokiClient) send(ctx context.Context, batch [][]any) error {
 		return err
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 2048)) // nolint:errcheck
+		resp.Body.Close()
+	}()
 	if resp.StatusCode/100 != 2 {
-		// empty response buffer
-		io.ReadAll(io.LimitReader(resp.Body, 2048)) // nolint:errcheck
 		return fmt.Errorf("server returned status %s (%d)", resp.Status, resp.StatusCode)
 	}
 
