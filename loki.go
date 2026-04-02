@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,6 +45,7 @@ type LokiClient struct {
 	buffer       chan []any
 	wg           sync.WaitGroup
 	once         sync.Once
+	stopped      atomic.Bool
 }
 
 // -----------------------------------------------------------------------------
@@ -165,6 +167,10 @@ func NewLokiClient(host string, port int, opts ...Option) (*LokiClient, Close) {
 // -----------------------------------------------------------------------------
 
 func (c *LokiClient) Write(input []byte) (int, error) {
+	if c.stopped.Load() {
+		return 0, errors.New("loki client is stopped")
+	}
+
 	var values map[string]any
 
 	defer func() {
@@ -226,6 +232,7 @@ func (c *LokiClient) Write(input []byte) (int, error) {
 
 func (c *LokiClient) stop() {
 	c.once.Do(func() {
+		c.stopped.Store(true)
 		close(c.buffer)
 	})
 	c.wg.Wait()
