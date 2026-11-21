@@ -27,7 +27,7 @@ func TestLokiBasicAuth(t *testing.T) {
 			"service_name": "my_service",
 		}),
 	)
-	defer stop()
+	t.Cleanup(stop)
 	logger := logx.New(
 		[]io.Writer{loki},
 		"Debug",
@@ -64,7 +64,7 @@ func TestLokiToken(t *testing.T) {
 			"service_name": "my_service",
 		}),
 	)
-	defer stop()
+	t.Cleanup(stop)
 	logger := logx.New(
 		[]io.Writer{loki},
 		"Debug",

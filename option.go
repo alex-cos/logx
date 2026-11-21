@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"maps"
 	"net/http"
 	"time"
 )
@@ -28,9 +29,7 @@ func WithBearerToken(token string) LokiOption {
 
 func WithLabels(labels map[string]string) LokiOption {
 	return func(c *LokiClient) {
-		for k, v := range labels {
-			c.labels[k] = v
-		}
+		maps.Copy(c.labels, labels)
 	}
 }
 

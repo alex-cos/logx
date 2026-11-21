@@ -35,7 +35,7 @@ func TestFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileRotate failed: %v", err)
 	}
-	defer closeFile()
+	t.Cleanup(closeFile)
 
 	logger.With("source", "my_source")
 
@@ -57,7 +57,7 @@ func TestFileRotate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileRotate failed: %v", err)
 	}
-	defer closeFile()
+	t.Cleanup(closeFile)
 
 	logger := logx.New(
 		[]io.Writer{file},

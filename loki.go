@@ -222,7 +222,7 @@ func (c *LokiClient) send(ctx context.Context, batch [][]any) error {
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d/%s/push", scheme, c.host, c.port, baseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(buf))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
 	if err != nil {
 		return err
 	}

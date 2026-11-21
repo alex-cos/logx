@@ -1,4 +1,3 @@
-// nolint: hugeparam, gocritic
 package logx
 
 import (
@@ -12,6 +11,7 @@ import (
 
 type handler struct {
 	slog.Handler
+
 	basePath string
 	caller   bool
 	stack    bool
@@ -21,6 +21,7 @@ func (h *handler) Enabled(ctx context.Context, l slog.Level) bool {
 	return h.Handler.Enabled(ctx, l)
 }
 
+// nolint: gocritic
 func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 	if h.caller {
 		caller := h.getCaller(5)

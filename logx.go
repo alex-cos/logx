@@ -56,7 +56,7 @@ func NewFileLogger(
 ) (*slog.Logger, Close, error) {
 	w := make([]io.Writer, 0, 1)
 
-	file, err := os.OpenFile(logpath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(logpath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint: gosec
 	if err != nil {
 		return nil, nil, err
 	}
